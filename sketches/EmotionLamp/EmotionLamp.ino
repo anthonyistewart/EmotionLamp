@@ -1,11 +1,22 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
-//#include <ArduinoJson.h>
+#include <ArduinoJson.h>
+#define FASTLED_ESP8266_D1_PIN_ORDER
+#include <FastLED.h>
+
 #include "config.h"
+
+#define LED_PIN 16 // Wemos D1 Mini D5
 
 int hue = 0;
 float brightness = 0.0;
 float saturation = 0.0;
+long previousMillis = 0; 
+
+String mqtt_root_topic = MQTT_TOPIC_ROOT;
+String mqtt_set_topic = mqtt_root_topic+"/"+DEVICE_ID+"/set";
+String mqtt_status_topic = mqtt_root_topic+"/"+DEVICE_ID+"/status";
+String mqtt_out_topic = mqtt_root_topic+"/"+PAIR_DEVICE_ID+"/set";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -37,25 +48,17 @@ void setup_wifi() {
 
 /******************************* MQTT Callback *****************************/
 
-void callback(char* topic, byte* payload_in, unsigned int length) {
+void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
 
-  /*
+  StaticJsonDocument<256> doc;
+  deserializeJson(doc, payload, length);
 
-  char raw[length];
-
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload_in[i]);
-    raw[i] = payload_in[i];
-  }
-  deserializeJson(json_doc, raw);
-
-  uint16_t n = json_doc["id"];
-  const char* c = json_doc["cmd"];
-  Serial.println(n);
-  Serial.println(c);*/
+  brightness = doc["brightness"];
+  saturation = doc["saturation"];
+  hue = doc["hue"]; 
 }
 
 /******************************* MQTT Reconnect *****************************/
@@ -70,7 +73,7 @@ void reconnect() {
       Serial.println("Connected");
 
       // Publish initialization message
-      client.subscribe(MQTT_TOPIC_IN);
+      client.subscribe(mqtt_set_topic.c_str());
     }
     else {
       Serial.print("failed, rc=");
@@ -81,6 +84,12 @@ void reconnect() {
       delay(5000);
     }
   }
+}
+
+void setLights(int new_hue, float new_saturation, float new_brightness){
+  hue = new_hue;
+  saturation = new_saturation;
+  brightness = new_brightness;
 }
 
 void setup() {
@@ -95,7 +104,7 @@ void setup() {
   if (!client.connected()) {
     reconnect();
   }
-  client.publish(MQTT_TOPIC_OUT, "init");
+  client.publish(mqtt_status_topic.c_str(), "init");
 }
 
 void loop() {
@@ -103,4 +112,16 @@ void loop() {
     reconnect();
   }
   client.loop();
+  unsigned long currentMillis = millis();
+  
+  if(currentMillis - previousMillis > 5000) {
+    previousMillis = currentMillis;  
+    Serial.print("Hue: ");
+    Serial.print(hue);
+    Serial.print(", Saturation: ");
+    Serial.print(saturation);
+    Serial.print(", Brightness: ");
+    Serial.print(brightness);
+    Serial.println("");
+  }
 }

@@ -12,9 +12,9 @@
 #define MQTT_USERNAME   ""
 #define MQTT_PASSWORD   ""
 
-#define MQTT_TOPIC_IN   ""
-#define MQTT_TOPIC_OUT  ""
+#define MQTT_TOPIC_ROOT   ""
 
 /******************************* DEVICE **************************************/
 
 #define DEVICE_ID ""
+#define PAIR_DEVICE_ID ""
