@@ -5,8 +5,11 @@
 
 #include "config.h"
 
+#define BUTTON_PIN D0 // Wemos D1 Mini D0
 #define DATA_PIN D5 // Wemos D1 Mini D5
 #define NUM_LEDS 60
+
+const int debounceDelay = 500;
 
 enum lampStates {
   OFF,
@@ -170,6 +173,28 @@ void reconnect() {
   }
 }
 
+void button_check(){
+  static int prevState;
+  static long lastDebounceTime;
+  int buttonState = digitalRead(BUTTON_PIN);
+  if(buttonState == prevState) return;
+
+  bool debounce = false;
+
+  if((millis() - lastDebounceTime) <= debounceDelay){
+    debounce = true;
+  }
+
+  lastDebounceTime = millis();
+
+  if(debounce) return;
+
+  prevState = buttonState;
+  
+  client.publish(mqtt_out_topic.c_str(), "1");
+
+}
+
 void lamp_loop() {
   switch (lampState) {
     case OFF: {
@@ -220,6 +245,9 @@ void setup() {
   delay(2000);
   Serial.begin(9600);
 
+  // Setup button
+  pinMode(BUTTON_PIN, INPUT);
+
   // Setup LED Strip
   FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NUM_LEDS);
 
@@ -246,6 +274,7 @@ void loop() {
   }
   client.loop();
 
+  //button_check();
   lamp_loop();
 }
 
