@@ -9,14 +9,22 @@
 #define DATA_PIN D5 // Wemos D1 Mini D5
 #define NUM_LEDS 60
 
+enum lampStates {
+  OFF,
+  SOLID,
+  WAVE,
+  HEARTBEAT,
+  BREATH
+};
+
+lampStates lampState;
+bool stateChange = false;
 int h = 0;
 int s = 0;
 int v = 0;
 
 long previousMillis = 0; 
 long interval = 5000;
-
-int movingLed = 0;
 
 CRGB leds[NUM_LEDS];
 
@@ -63,9 +71,26 @@ void callback(char* topic, byte* payload, unsigned int length) {
   StaticJsonDocument<256> doc;
   deserializeJson(doc, payload, length);
 
-  h = doc["h"]; 
-  s = doc["s"];
-  v = doc["v"];
+  if(doc['mode'].is<int>()){
+    int mode = doc['mode'];
+    switch(mode){
+      case 0:
+        lampState = OFF;
+        stateChange = true;
+        break;
+      case 1:
+        lampState = SOLID;
+        // TO-DO: Check for color field (HSV, RGB, GRADIENT, RAINBOW)
+        h = doc["color"]["h"];
+        s = doc["color"]["s"];
+        v = doc["color"]["v"];
+        stateChange = true;
+        break;
+      default:
+        stateChange = false;
+        break;
+    }
+  }
 }
 
 /******************************* MQTT Reconnect *****************************/
@@ -93,12 +118,44 @@ void reconnect() {
   }
 }
 
+void lamp_loop(){
+  switch(lampState){
+    case OFF:
+      if(stateChange){
+        FastLED.clear();
+        FastLED.show();
+        stateChange = false;
+      }
+      break;
+    case SOLID:
+      if(stateChange){
+        fill_solid(leds, NUM_LEDS, CHSV(h,s,v));
+        FastLED.show();
+        stateChange = false;
+      }
+      break;
+    case WAVE:
+      break;
+    case HEARTBEAT:
+      break;
+    case BREATH:
+      break;
+    default:
+      break;
+  }
+}
+
 void setup() {
   delay(2000);
   Serial.begin(9600);
 
   // Setup LED Strip
   FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NUM_LEDS);
+
+  // Clear LED state and reset strip
+  lampState = OFF;
+  FastLED.clear();
+  FastLED.show();
   
   // Setup WiFi
   setup_wifi();
@@ -117,26 +174,6 @@ void loop() {
     reconnect();
   }
   client.loop();
-  fill_solid(leds, NUM_LEDS, CHSV(h,s,v));
-  FastLED.show();
-//  unsigned long currentMillis = millis();
-//  
-//  if(currentMillis - previousMillis > 100) {
-//    previousMillis = currentMillis;
-//
-//    if(movingLed == NUM_LEDS - 1){
-//      movingLed = 0;
-//      leds[NUM_LEDS - 1] = CRGB::Black;
-//    } else{
-//      leds[movingLed-1] = CRGB::Black;
-//    }
-//    
-//    // Turn our current led on to white, then show the leds
-//    leds[movingLed].setHSV(h,s,v);
-//
-//    // Show the leds (only one of which is set to white, from above)
-//    FastLED.show();
-//    movingLed++;
-//    
-//  }
+
+  lamp_loop();
 }
