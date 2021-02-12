@@ -1,0 +1,10 @@
+{
+	"mode": "heartbeat",
+	"brightness": 50,
+	"color": {
+		"type": "HSV",
+		"h": 10,
+		"s": 220,
+		"v": 34
+	}
+}
