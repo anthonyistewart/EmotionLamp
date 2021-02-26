@@ -9,12 +9,15 @@
 #define DATA_PIN D5 // Wemos D1 Mini D5
 #define NUM_LEDS 60
 
+#define DEBUG
+
 const int debounceDelay = 500;
 
 enum lampStates {
   OFF,
   SOLID,
   WAVE,
+  RAINBOW,
   HEARTBEAT,
   BREATHE
 };
@@ -45,39 +48,48 @@ PubSubClient client(espClient);
 void setup_wifi() {
   delay(10);
 
+#ifdef DEBUG
   // We start by connecting to a WiFi network
   Serial.println();
   Serial.print("Connecting to ");
   Serial.println(WIFI_SSID);
-
+#endif
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
+#ifdef DEBUG
     Serial.print(".");
+#endif
   }
 
   randomSeed(micros());
 
+#ifdef DEBUG
   Serial.println("");
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
+#endif
 }
 
 /******************************* MQTT Callback *****************************/
 
 void callback(char* topic, byte* payload, unsigned int length) {
+#ifdef DEBUG
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
+#endif
 
   StaticJsonDocument<256> doc;
   DeserializationError error = deserializeJson(doc, payload, length);
 
   if (error) {
+#ifdef DEBUG
     Serial.print(F("deserializeJson() failed: "));
     Serial.println(error.f_str());
+#endif
     return;
   }
 
@@ -112,7 +124,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
           break;
         }
       case 2: {
-          lampState = WAVE;
+          lampState = RAINBOW;
           stateChange = true;
           break;
         }
@@ -153,19 +165,25 @@ void callback(char* topic, byte* payload, unsigned int length) {
 void reconnect() {
   // Loop until we're reconnected
   while (!client.connected()) {
+#ifdef DEBUG
     Serial.print("Attempting MQTT connection...");
+#endif
 
     // Attempt to connect
     if (client.connect(DEVICE_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
+#ifdef DEBUG
       Serial.println("Connected");
+#endif
 
       // Publish initialization message
       client.subscribe(mqtt_set_topic.c_str());
     }
     else {
+#ifdef DEBUG
       Serial.print("failed, rc=");
       Serial.print(client.state());
       Serial.println(" try again in 5 seconds");
+#endif
 
       // Wait 5 seconds before retrying
       delay(5000);
@@ -173,24 +191,24 @@ void reconnect() {
   }
 }
 
-void button_check(){
+void button_check() {
   static int prevState;
   static long lastDebounceTime;
   int buttonState = digitalRead(BUTTON_PIN);
-  if(buttonState == prevState) return;
+  if (buttonState == prevState) return;
 
   bool debounce = false;
 
-  if((millis() - lastDebounceTime) <= debounceDelay){
+  if ((millis() - lastDebounceTime) <= debounceDelay) {
     debounce = true;
   }
 
   lastDebounceTime = millis();
 
-  if(debounce) return;
+  if (debounce) return;
 
   prevState = buttonState;
-  
+
   client.publish(mqtt_out_topic.c_str(), "1");
 
 }
@@ -218,9 +236,8 @@ void lamp_loop() {
         }
         break;
       }
-    case WAVE: {
+    case RAINBOW: {
         rainbow(5, 1);
-        Serial.println("LED to wave");
         break;
       }
     case HEARTBEAT: {
@@ -274,7 +291,7 @@ void loop() {
   }
   client.loop();
 
-  //button_check();
+  button_check();
   lamp_loop();
 }
 
@@ -340,7 +357,7 @@ void breathe(bool firstRun, int speed, int holdTime) {
     delay(holdTime);
     fade = -fade;
   }
-  
+
   FastLED.show();
   val += fade;
 }
