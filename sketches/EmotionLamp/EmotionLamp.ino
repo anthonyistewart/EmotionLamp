@@ -9,7 +9,8 @@
 #define DATA_PIN D5 // Wemos D1 Mini D5
 #define NUM_LEDS 60
 
-#define DEBUG
+// Uncomment to enable debug print statements
+//#define DEBUG
 
 const int debounceDelay = 500;
 
@@ -17,6 +18,7 @@ enum lampStates {
   OFF,
   SOLID,
   WAVE,
+  SIREN,
   RAINBOW,
   HEARTBEAT,
   BREATHE
@@ -152,6 +154,54 @@ void callback(char* topic, byte* payload, unsigned int length) {
           stateChange = true;
           break;
         }
+      case 4: {
+          lampState = WAVE;
+
+          if (doc.containsKey("color")) {
+            JsonObject color = doc["color"];
+            const char* color_type = color["type"];
+
+            if (strcmp(color_type, "rgb") == 0) {
+              colorType = RGB_COLOR;
+              rgb[0] = doc["color"]["r"];
+              rgb[1] = doc["color"]["g"];
+              rgb[2] = doc["color"]["b"];
+            }
+            else if (strcmp(color_type, "hsv") == 0) {
+              colorType = HSV_COLOR;
+              hsv[0] = doc["color"]["h"];
+              hsv[1] = doc["color"]["s"];
+              hsv[2] = doc["color"]["v"];
+            }
+          }
+
+          stateChange = true;
+          break;
+        }
+      case 5: {
+          lampState = SIREN;
+
+          if (doc.containsKey("color")) {
+            JsonObject color = doc["color"];
+            const char* color_type = color["type"];
+
+            if (strcmp(color_type, "rgb") == 0) {
+              colorType = RGB_COLOR;
+              rgb[0] = doc["color"]["r"];
+              rgb[1] = doc["color"]["g"];
+              rgb[2] = doc["color"]["b"];
+            }
+            else if (strcmp(color_type, "hsv") == 0) {
+              colorType = HSV_COLOR;
+              hsv[0] = doc["color"]["h"];
+              hsv[1] = doc["color"]["s"];
+              hsv[2] = doc["color"]["v"];
+            }
+          }
+
+          stateChange = true;
+          break;
+        }
       default: {
           stateChange = false;
           break;
@@ -240,7 +290,12 @@ void lamp_loop() {
         rainbow(5, 1);
         break;
       }
-    case HEARTBEAT: {
+    case WAVE: {
+        wave(2);
+        break;
+      }
+    case SIREN: {
+        wave(50);
         break;
       }
     case BREATHE: {
@@ -282,6 +337,9 @@ void setup() {
   if (!client.connected()) {
     reconnect();
   }
+
+  // Startup Indicator
+  startup_flash();
   client.publish(mqtt_status_topic.c_str(), "init");
 }
 
@@ -360,4 +418,27 @@ void breathe(bool firstRun, int speed, int holdTime) {
 
   FastLED.show();
   val += fade;
+}
+
+// Wave
+void wave(int speed) {
+  for (int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = CHSV(hsv[0], hsv[1], hsv[2]);
+    FastLED.show();
+    leds[i] = CRGB::Black;
+    delay(speed);
+  }
+}
+
+// Startup Flash
+void startup_flash() {
+  for (int i = 0; i < 3; i++) {
+    fill_solid(leds, NUM_LEDS, CHSV(0, 0, 10));
+    FastLED.show();
+    delay(200);
+    fill_solid(leds, NUM_LEDS, CRGB::Black);
+    FastLED.show();
+    delay(200);
+  }
+
 }
