@@ -2,6 +2,7 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <FastLED.h>
+#include "OneButton.h"
 
 #include "config.h"
 
@@ -9,19 +10,25 @@
 #define DATA_PIN D5 // Wemos D1 Mini D5
 #define NUM_LEDS 60
 
+#define RAINBOW_MAX_VALUE 1280
+#define STRIPE_WIDTH 10
+
 // Uncomment to enable debug print statements
 //#define DEBUG
 
-const int debounceDelay = 500;
+// Delay Settings for Patterns
+unsigned long prevRainbowTime = 0;
+unsigned long rainbowInterval = 5;
+unsigned int rainbowCycleCount = 0;
 
 enum lampStates {
   OFF,
   SOLID,
+  STRIPES,
+  GRADIENT,
+  BREATHE,
   WAVE,
-  SIREN,
-  RAINBOW,
-  HEARTBEAT,
-  BREATHE
+  RAINBOW
 };
 
 enum colorTypes {
@@ -31,8 +38,8 @@ enum colorTypes {
 
 lampStates lampState;
 bool stateChange = false;
-int hsv[] = {0, 0, 0};
-int rgb[] = {0, 0, 0};
+int color1[] = {0, 0, 0};
+int color2[] = {0, 0, 0};
 colorTypes colorType;
 
 CRGB leds[NUM_LEDS];
@@ -44,6 +51,8 @@ String mqtt_out_topic = mqtt_root_topic + "/" + PAIR_DEVICE_ID + "/set";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
+
+OneButton *touch_btn = new OneButton();
 
 /******************************* WIFI Setup *******************************/
 
@@ -97,111 +106,144 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
   if (doc["state"].is<int>()) {
     int newState = doc["state"];
+    JsonObject color_doc = doc["color"];
+    const char* color_type = color_doc["type"];
+    JsonArray colors = color_doc["values"].as<JsonArray>();
 
     switch (newState) {
+      // OFF
       case 0: {
           lampState = OFF;
           stateChange = true;
           break;
         }
+
+      // SOLID
       case 1: {
           lampState = SOLID;
-
-          JsonObject color = doc["color"];
-          const char* color_type = color["type"];
+          JsonObject color = colors[0];
 
           if (strcmp(color_type, "rgb") == 0) {
             colorType = RGB_COLOR;
-            rgb[0] = doc["color"]["r"];
-            rgb[1] = doc["color"]["g"];
-            rgb[2] = doc["color"]["b"];
+            color1[0] = color["r"];
+            color1[1] = color["g"];
+            color1[2] = color["b"];
           }
           else if (strcmp(color_type, "hsv") == 0) {
             colorType = HSV_COLOR;
-            hsv[0] = doc["color"]["h"];
-            hsv[1] = doc["color"]["s"];
-            hsv[2] = doc["color"]["v"];
+            color1[0] = color["h"];
+            color1[1] = color["s"];
+            color1[2] = color["v"];
           }
           stateChange = true;
           break;
         }
+
+      // STRIPES
       case 2: {
+          lampState = STRIPES;
+          JsonObject c1 = colors[0];
+          JsonObject c2 = colors[1];
+
+          if (strcmp(color_type, "rgb") == 0) {
+            colorType = RGB_COLOR;
+            color1[0] = c1["r"];
+            color1[1] = c1["g"];
+            color1[2] = c1["b"];
+            color2[0] = c2["r"];
+            color2[1] = c2["g"];
+            color2[2] = c2["b"];
+          }
+          else if (strcmp(color_type, "hsv") == 0) {
+            colorType = HSV_COLOR;
+            color1[0] = c1["h"];
+            color1[1] = c1["s"];
+            color1[2] = c1["v"];
+            color2[0] = c2["h"];
+            color2[1] = c2["s"];
+            color2[2] = c2["v"];
+          }
+          stateChange = true;
+          break;
+        }
+
+      // GRADIENT
+      case 3: {
+          lampState = GRADIENT;
+          JsonObject c1 = colors[0];
+          JsonObject c2 = colors[1];
+
+          if (strcmp(color_type, "rgb") == 0) {
+            colorType = RGB_COLOR;
+            color1[0] = c1["r"];
+            color1[1] = c1["g"];
+            color1[2] = c1["b"];
+            color2[0] = c2["r"];
+            color2[1] = c2["g"];
+            color2[2] = c2["b"];
+          }
+          else if (strcmp(color_type, "hsv") == 0) {
+            colorType = HSV_COLOR;
+            color1[0] = c1["h"];
+            color1[1] = c1["s"];
+            color1[2] = c1["v"];
+            color2[0] = c2["h"];
+            color2[1] = c2["s"];
+            color2[2] = c2["v"];
+          }
+          stateChange = true;
+          break;
+        }
+
+      // BREATHE
+      case 4: {
+          lampState = BREATHE;
+          JsonObject color = colors[0];
+
+          if (strcmp(color_type, "rgb") == 0) {
+            colorType = RGB_COLOR;
+            color1[0] = color["r"];
+            color1[1] = color["g"];
+            color1[2] = color["b"];
+          }
+          else if (strcmp(color_type, "hsv") == 0) {
+            colorType = HSV_COLOR;
+            color1[0] = color["h"];
+            color1[1] = color["s"];
+            color1[2] = color["v"];
+          }
+          stateChange = true;
+          break;
+        }
+
+      // WAVE
+      case 5: {
+          lampState = WAVE;
+          JsonObject color = colors[0];
+
+          if (strcmp(color_type, "rgb") == 0) {
+            colorType = RGB_COLOR;
+            color1[0] = color["r"];
+            color1[1] = color["g"];
+            color1[2] = color["b"];
+          }
+          else if (strcmp(color_type, "hsv") == 0) {
+            colorType = HSV_COLOR;
+            color1[0] = color["h"];
+            color1[1] = color["s"];
+            color1[2] = color["v"];
+          }
+          stateChange = true;
+          break;
+        }
+
+      // RAINBOW
+      case 6: {
           lampState = RAINBOW;
           stateChange = true;
           break;
         }
-      case 3: {
-          lampState = BREATHE;
 
-          if (doc.containsKey("color")) {
-            JsonObject color = doc["color"];
-            const char* color_type = color["type"];
-
-            if (strcmp(color_type, "rgb") == 0) {
-              colorType = RGB_COLOR;
-              rgb[0] = doc["color"]["r"];
-              rgb[1] = doc["color"]["g"];
-              rgb[2] = doc["color"]["b"];
-            }
-            else if (strcmp(color_type, "hsv") == 0) {
-              colorType = HSV_COLOR;
-              hsv[0] = doc["color"]["h"];
-              hsv[1] = doc["color"]["s"];
-              hsv[2] = doc["color"]["v"];
-            }
-          }
-
-          stateChange = true;
-          break;
-        }
-      case 4: {
-          lampState = WAVE;
-
-          if (doc.containsKey("color")) {
-            JsonObject color = doc["color"];
-            const char* color_type = color["type"];
-
-            if (strcmp(color_type, "rgb") == 0) {
-              colorType = RGB_COLOR;
-              rgb[0] = doc["color"]["r"];
-              rgb[1] = doc["color"]["g"];
-              rgb[2] = doc["color"]["b"];
-            }
-            else if (strcmp(color_type, "hsv") == 0) {
-              colorType = HSV_COLOR;
-              hsv[0] = doc["color"]["h"];
-              hsv[1] = doc["color"]["s"];
-              hsv[2] = doc["color"]["v"];
-            }
-          }
-
-          stateChange = true;
-          break;
-        }
-      case 5: {
-          lampState = SIREN;
-
-          if (doc.containsKey("color")) {
-            JsonObject color = doc["color"];
-            const char* color_type = color["type"];
-
-            if (strcmp(color_type, "rgb") == 0) {
-              colorType = RGB_COLOR;
-              rgb[0] = doc["color"]["r"];
-              rgb[1] = doc["color"]["g"];
-              rgb[2] = doc["color"]["b"];
-            }
-            else if (strcmp(color_type, "hsv") == 0) {
-              colorType = HSV_COLOR;
-              hsv[0] = doc["color"]["h"];
-              hsv[1] = doc["color"]["s"];
-              hsv[2] = doc["color"]["v"];
-            }
-          }
-
-          stateChange = true;
-          break;
-        }
       default: {
           stateChange = false;
           break;
@@ -241,26 +283,38 @@ void reconnect() {
   }
 }
 
-void button_check() {
-  static int prevState;
-  static long lastDebounceTime;
-  int buttonState = digitalRead(BUTTON_PIN);
-  if (buttonState == prevState) return;
+/******************************* Button Callbacks *****************************/
 
-  bool debounce = false;
+static void handleDoubleTap() {
+  static bool lightToggle = false;
 
-  if ((millis() - lastDebounceTime) <= debounceDelay) {
-    debounce = true;
+  // Turn off lamp if on
+  if (lampState != OFF) {
+    lightToggle = true;
   }
 
-  lastDebounceTime = millis();
+  // Toggle Lamp
+  if (lightToggle) {
+    lampState = OFF;
+    lightToggle = false;
+    stateChange = true;
+  } else {
+    lampState = SOLID;
+    colorType = HSV_COLOR;
+    color1[0] = 0;
+    color1[1] = 0;
+    color1[2] = 255;
+    lightToggle = true;
+    stateChange = true;
+  }
+}
 
-  if (debounce) return;
+static void handleeTap() {
+  Serial.println("Tapped!");
+}
 
-  prevState = buttonState;
-
-  client.publish(mqtt_out_topic.c_str(), "1");
-
+static void handleLongTap() {
+  Serial.println("Long Tap!");
 }
 
 void lamp_loop() {
@@ -269,33 +323,64 @@ void lamp_loop() {
         if (stateChange) {
           FastLED.clear();
           FastLED.show();
+#ifdef DEBUG
           Serial.println("LED to off");
+#endif
         }
         break;
       }
     case SOLID: {
         if (stateChange) {
           if (colorType == RGB_COLOR)
-            fill_solid(leds, NUM_LEDS, CRGB(rgb[0], rgb[1], rgb[2]));
+            fill_solid(leds, NUM_LEDS, CRGB(color1[0], color1[1], color1[2]));
 
           else if (colorType == HSV_COLOR)
-            fill_solid(leds, NUM_LEDS, CHSV(hsv[0], hsv[1], hsv[2]));
+            fill_solid(leds, NUM_LEDS, CHSV(color1[0], color1[1], color1[2]));
 
           FastLED.show();
+#ifdef DEBUG
           Serial.println("LED to solid");
+#endif
+        }
+        break;
+      }
+    case GRADIENT: {
+        if (stateChange) {
+          if (colorType == RGB_COLOR)
+            fill_gradient_RGB(leds, 0, CRGB(color1[0], color1[1], color1[2]), NUM_LEDS - 1, CRGB(color2[0], color2[1], color2[2]));
+
+          else if (colorType == HSV_COLOR)
+            fill_gradient_RGB(leds, NUM_LEDS, CHSV(color1[0], color1[1], color1[2]), CHSV(color2[0], color2[1], color2[2]), FORWARD_HUES);
+          FastLED.show();
+#ifdef DEBUG
+          Serial.println("LED to gradient");
+#endif
+        }
+        break;
+      }
+    case STRIPES: {
+        if (stateChange) {
+          stripes(STRIPE_WIDTH);
+#ifdef DEBUG
+          Serial.println("LED to stripes");
+#endif
         }
         break;
       }
     case RAINBOW: {
-        rainbow(5, 1);
+        if (stateChange || (rainbowCycleCount >= RAINBOW_MAX_VALUE)) {
+          rainbowCycleCount = 0;
+        }
+        unsigned long currentMillis = millis();
+        if (currentMillis - prevRainbowTime > rainbowInterval) {
+          prevRainbowTime = currentMillis;
+          rainbow();
+          rainbowCycleCount++;
+        }
         break;
       }
     case WAVE: {
         wave(2);
-        break;
-      }
-    case SIREN: {
-        wave(50);
         break;
       }
     case BREATHE: {
@@ -318,6 +403,10 @@ void setup() {
   Serial.begin(9600);
 
   // Setup button
+  touch_btn->setPressTicks(2000);
+  touch_btn->attachDoubleClick(handleDoubleTap);
+  //touch_btn->attachClick(handleTap);
+  //touch_btn->attachLongPressStart(handleLongTap);
   pinMode(BUTTON_PIN, INPUT);
 
   // Setup LED Strip
@@ -349,32 +438,14 @@ void loop() {
   }
   client.loop();
 
-  button_check();
+  bool isPressed = (digitalRead(BUTTON_PIN) == HIGH);
+  touch_btn->tick(isPressed);
   lamp_loop();
 }
 
 /******************************* LED Patterns *****************************/
 
-// Rainbow pattern is sourced from the FastLED-Patterns repo by Resseguie
-
-// Rainbow colors that slowly cycle across LEDs
-void rainbow(int cycles, int speed) {
-  if (cycles == 0) {
-    for (int i = 0; i < NUM_LEDS; i++) {
-      leds[i] = Wheel(((i * 256 / NUM_LEDS)) & 255);
-    }
-    FastLED.show();
-  }
-  else {
-    for (int j = 0; j < 256 * cycles; j++) {
-      for (int i = 0; i < NUM_LEDS; i++) {
-        leds[i] = Wheel(((i * 256 / NUM_LEDS) + j) & 255);
-      }
-      FastLED.show();
-      delay(speed);
-    }
-  }
-}
+// Rainbow pattern is based on the rainbow function from the FastLED-Patterns repo by Resseguie
 
 // Input a value 0 to 255 to get a color value.
 // The colours are a transition r - g - b - back to r.
@@ -392,6 +463,18 @@ CRGB Wheel(byte WheelPos) {
   }
 }
 
+CRGB randomColor() {
+  return Wheel(random(256));
+}
+
+// Rainbow colors that slowly cycle across LEDs
+void rainbow() {
+  for (int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = Wheel(((i * 256 / NUM_LEDS) + rainbowCycleCount) & 255);
+  }
+  FastLED.show();
+}
+
 // Breathing
 void breathe(bool firstRun, int speed, int holdTime) {
   static int val;
@@ -406,7 +489,7 @@ void breathe(bool firstRun, int speed, int holdTime) {
   Serial.println(val);
   if (val < 255) {
     delay(speed);
-    fill_solid(leds, NUM_LEDS, CHSV(hsv[0], hsv[1], val));
+    fill_solid(leds, NUM_LEDS, CHSV(color1[0], color1[1], val));
   }
   if (val == 255) {
     delay(holdTime);
@@ -420,14 +503,49 @@ void breathe(bool firstRun, int speed, int holdTime) {
   val += fade;
 }
 
-// Wave
+//Wave
 void wave(int speed) {
   for (int i = 0; i < NUM_LEDS; i++) {
-    leds[i] = CHSV(hsv[0], hsv[1], hsv[2]);
+    if (colorType == RGB_COLOR) {
+      leds[i] = CRGB(color1[0], color1[1], color1[2]);
+    }
+    else if (colorType == HSV_COLOR) {
+      leds[i] = CHSV(color1[0], color1[1], color1[2]);
+    }
     FastLED.show();
     leds[i] = CRGB::Black;
     delay(speed);
   }
+}
+
+// Display alternating stripes
+void stripes(int width) {
+  if (colorType == RGB_COLOR) {
+    CRGB c1 = CRGB(color1[0], color1[1], color1[2]);
+    CRGB c2 = CRGB(color2[0], color2[1], color2[2]);
+    for (int i = 0; i < NUM_LEDS; i++) {
+      if (i % (width * 2) < width) {
+        leds[i] = c1;
+      }
+      else {
+        leds[i] = c2;
+      }
+    }
+  }
+
+  else if (colorType == HSV_COLOR) {
+    CHSV c1 = CHSV(color1[0], color1[1], color1[2]);
+    CHSV c2 = CHSV(color2[0], color2[1], color2[2]);
+    for (int i = 0; i < NUM_LEDS; i++) {
+      if (i % (width * 2) < width) {
+        leds[i] = c1;
+      }
+      else {
+        leds[i] = c2;
+      }
+    }
+  }
+  FastLED.show();
 }
 
 // Startup Flash
