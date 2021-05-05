@@ -12,6 +12,7 @@
 
 #define RAINBOW_MAX_VALUE 1280
 #define STRIPE_WIDTH 10
+#define GRADIENT_LENGTH 60
 
 // Uncomment to enable debug print statements
 //#define DEBUG
@@ -20,14 +21,19 @@
 unsigned long prevRainbowTime = 0;
 unsigned long rainbowInterval = 5;
 unsigned int rainbowCycleCount = 0;
+unsigned long prevWaveTime = 0;
+unsigned long waveInterval = 400;
+unsigned long prevBreatheTime = 0;
+unsigned long breatheInterval = 5000;
+unsigned long breatheHoldInterval = 1000;
 
 enum lampStates {
   OFF,
   SOLID,
   STRIPES,
   GRADIENT,
+  MOVING_GRADIENT,
   BREATHE,
-  WAVE,
   RAINBOW
 };
 
@@ -43,6 +49,9 @@ int color2[] = {0, 0, 0};
 colorTypes colorType;
 
 CRGB leds[NUM_LEDS];
+CRGB gradient[NUM_LEDS];
+int gradientStartPos = 0;  // Starting position of the gradient.
+int gradientDelta = 1;  // 1 or -1.  (Negative value reverses direction.)
 
 String mqtt_root_topic = MQTT_TOPIC_ROOT;
 String mqtt_set_topic = mqtt_root_topic + "/" + DEVICE_ID + "/set";
@@ -195,8 +204,39 @@ void callback(char* topic, byte* payload, unsigned int length) {
           break;
         }
 
-      // BREATHE
+      // MOVING GRADIENT
       case 4: {
+          lampState = MOVING_GRADIENT;
+          JsonObject c1 = colors[0];
+          JsonObject c2 = colors[1];
+
+          if (strcmp(color_type, "rgb") == 0) {
+            colorType = RGB_COLOR;
+            color1[0] = c1["r"];
+            color1[1] = c1["g"];
+            color1[2] = c1["b"];
+            color2[0] = c2["r"];
+            color2[1] = c2["g"];
+            color2[2] = c2["b"];
+            fill_gradient_RGB(leds, 0, CRGB(color1[0], color1[1], color1[2]), NUM_LEDS - 1, CRGB(color2[0], color2[1], color2[2]));
+          }
+          else if (strcmp(color_type, "hsv") == 0) {
+            colorType = HSV_COLOR;
+            color1[0] = c1["h"];
+            color1[1] = c1["s"];
+            color1[2] = c1["v"];
+            color2[0] = c2["h"];
+            color2[1] = c2["s"];
+            color2[2] = c2["v"];
+            fill_gradient(gradient, 0, CHSV(color1[0], color1[1], color1[2]), NUM_LEDS - 1, CHSV(color2[0], color2[1], color2[2]), SHORTEST_HUES);
+          }
+
+          stateChange = true;
+          break;
+        }
+
+      // BREATHE
+      case 5: {
           lampState = BREATHE;
           JsonObject color = colors[0];
 
@@ -210,28 +250,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
             colorType = HSV_COLOR;
             color1[0] = color["h"];
             color1[1] = color["s"];
-            color1[2] = color["v"];
-          }
-          stateChange = true;
-          break;
-        }
-
-      // WAVE
-      case 5: {
-          lampState = WAVE;
-          JsonObject color = colors[0];
-
-          if (strcmp(color_type, "rgb") == 0) {
-            colorType = RGB_COLOR;
-            color1[0] = color["r"];
-            color1[1] = color["g"];
-            color1[2] = color["b"];
-          }
-          else if (strcmp(color_type, "hsv") == 0) {
-            colorType = HSV_COLOR;
-            color1[0] = color["h"];
-            color1[1] = color["s"];
-            color1[2] = color["v"];
+            color1[2] = (color["v"] == 0) ? 10 : color["v"];
           }
           stateChange = true;
           break;
@@ -317,8 +336,12 @@ static void handleLongTap() {
   Serial.println("Long Tap!");
 }
 
+/******************************* Lamp Loop *****************************/
+
+
 void lamp_loop() {
   switch (lampState) {
+
     case OFF: {
         if (stateChange) {
           FastLED.clear();
@@ -329,6 +352,7 @@ void lamp_loop() {
         }
         break;
       }
+
     case SOLID: {
         if (stateChange) {
           if (colorType == RGB_COLOR)
@@ -344,20 +368,7 @@ void lamp_loop() {
         }
         break;
       }
-    case GRADIENT: {
-        if (stateChange) {
-          if (colorType == RGB_COLOR)
-            fill_gradient_RGB(leds, 0, CRGB(color1[0], color1[1], color1[2]), NUM_LEDS - 1, CRGB(color2[0], color2[1], color2[2]));
 
-          else if (colorType == HSV_COLOR)
-            fill_gradient_RGB(leds, NUM_LEDS, CHSV(color1[0], color1[1], color1[2]), CHSV(color2[0], color2[1], color2[2]), FORWARD_HUES);
-          FastLED.show();
-#ifdef DEBUG
-          Serial.println("LED to gradient");
-#endif
-        }
-        break;
-      }
     case STRIPES: {
         if (stateChange) {
           stripes(STRIPE_WIDTH);
@@ -367,6 +378,52 @@ void lamp_loop() {
         }
         break;
       }
+
+    case GRADIENT: {
+        if (stateChange) {
+          if (colorType == RGB_COLOR)
+            fill_gradient_RGB(leds, 0, CRGB(color1[0], color1[1], color1[2]), NUM_LEDS - 1, CRGB(color2[0], color2[1], color2[2]));
+
+          else if (colorType == HSV_COLOR)
+            fill_gradient(leds, NUM_LEDS, CHSV(color1[0], color1[1], color1[2]), CHSV(color2[0], color2[1], color2[2]), SHORTEST_HUES);
+
+          FastLED.show();
+#ifdef DEBUG
+          Serial.println("LED to gradient");
+#endif
+        }
+        break;
+      }
+
+    case MOVING_GRADIENT: {
+        unsigned long currentMillis = millis();
+        if (currentMillis - prevWaveTime > waveInterval) {
+          prevWaveTime = currentMillis;
+          moving_gradient();
+        }
+        break;
+      }
+
+    case BREATHE: {
+        static bool holdColor = false;
+        unsigned long currentMillis = millis();
+
+        if (!holdColor) {
+          unsigned long interval = (color1[2] > 0) ? (breatheInterval / color1[2]) : 10;
+          if (currentMillis - prevBreatheTime > interval) {
+            prevBreatheTime = currentMillis;
+            holdColor = breathe(stateChange);
+          }
+        } else {
+          if (currentMillis - prevBreatheTime > breatheHoldInterval) {
+            prevBreatheTime = currentMillis;
+            holdColor = breathe(stateChange);
+          }
+        }
+
+        break;
+      }
+
     case RAINBOW: {
         if (stateChange || (rainbowCycleCount >= RAINBOW_MAX_VALUE)) {
           rainbowCycleCount = 0;
@@ -379,18 +436,7 @@ void lamp_loop() {
         }
         break;
       }
-    case WAVE: {
-        wave(2);
-        break;
-      }
-    case BREATHE: {
-        if (stateChange) {
-          breathe(true, 10, 500);
-        } else {
-          breathe(false, 10, 500);
-        }
-        break;
-      }
+
     default: {
         break;
       }
@@ -476,45 +522,49 @@ void rainbow() {
 }
 
 // Breathing
-void breathe(bool firstRun, int speed, int holdTime) {
-  static int val;
+bool breathe(bool firstRun) {
+  static int value;
   static int fade;
   static long prevMillis;
-  static bool swap_fade;
+  bool holdColor;
 
   if (firstRun) {
-    fade = 5;
-    val = fade;
+    fade = (color1[2] > 100) ? 5 : 1;
+    value = fade;
   }
-  Serial.println(val);
-  if (val < 255) {
-    delay(speed);
-    fill_solid(leds, NUM_LEDS, CHSV(color1[0], color1[1], val));
+
+  if ((value <= color1[2]) && (value >= 0)) {
+    holdColor = false;
+    fill_solid(leds, NUM_LEDS, CHSV(color1[0], color1[1], value));
   }
-  if (val == 255) {
-    delay(holdTime);
+  else if (value > color1[2]) {
+    holdColor = true;
     fade = -fade;
-  } else if (val == 0) {
-    delay(holdTime);
+  }
+  else if (value < 0) {
+    holdColor = true;
     fade = -fade;
   }
 
   FastLED.show();
-  val += fade;
+  value += fade;
+  return holdColor;
 }
 
-//Wave
-void wave(int speed) {
-  for (int i = 0; i < NUM_LEDS; i++) {
-    if (colorType == RGB_COLOR) {
-      leds[i] = CRGB(color1[0], color1[1], color1[2]);
-    }
-    else if (colorType == HSV_COLOR) {
-      leds[i] = CHSV(color1[0], color1[1], color1[2]);
-    }
-    FastLED.show();
-    leds[i] = CRGB::Black;
-    delay(speed);
+// Moving Gradient
+void moving_gradient() {
+  uint8_t count = 0;
+  for (uint8_t i = gradientStartPos; i < gradientStartPos + GRADIENT_LENGTH; i++) {
+    leds[i % NUM_LEDS] = gradient[count];
+    count++;
+  }
+
+  FastLED.show();
+  FastLED.clear();
+
+  gradientStartPos = gradientStartPos + gradientDelta;  // Update start position.
+  if ( (gradientStartPos > NUM_LEDS - 1) || (gradientStartPos < 0) ) { // Check if outside NUM_LEDS range
+    gradientStartPos = gradientStartPos % NUM_LEDS;  // Loop around as needed.
   }
 }
 
