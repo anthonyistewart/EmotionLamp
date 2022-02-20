@@ -6,7 +6,7 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <FastLED.h>
-#include <OneButton.h>
+#include "OneButton.h"
 
 #include "config.h"
 
@@ -18,19 +18,11 @@
 #define STRIPE_WIDTH 10
 #define GRADIENT_LENGTH 60
 
-#ifndef MQTT_PROTECTED
-const char* mqtt_username = NULL;
-const char* mqtt_password = NULL;
-#endif
-
-#ifdef MQTT_PROTECTED
-const char* mqtt_username = MQTT_USERNAME;
-const char* mqtt_password = MQTT_PASSWORD;
-#endif
+const char* ssid = "EmotionLamp";
+const char* password = "emotionlamp1";
 
 // Uncomment to enable debug print statements
 #define DEBUG
-
 
 // Delay Settings for Patterns
 unsigned long prevRainbowTime = 0;
@@ -76,27 +68,164 @@ String mqtt_out_topic = mqtt_root_topic + "/" + PAIR_DEVICE_ID + "/set";
 WiFiClient espClient;
 PubSubClient client(espClient);
 ESP8266WebServer server(80);
+String content;
 
-OneButton touch_btn = OneButton(BUTTON_PIN, false, false);
+OneButton *touch_btn = new OneButton();
+
+//Function Declarations
+static void handleDoubleTap(void);
+
+void setup() {
+  delay(2000);
+  Serial.begin(115200);
+  EEPROM.begin(512);
+  delay(10);
+
+  // Setup button
+  touch_btn->setPressTicks(2000);
+  touch_btn->attachDoubleClick(handleDoubleTap);
+  //touch_btn->attachClick(handleTap);
+  //touch_btn->attachLongPressStart(handleLongTap);
+  pinMode(BUTTON_PIN, INPUT);
+
+  // Setup LED Strip
+  FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NUM_LEDS);
+
+  // Clear LED state and reset strip
+  lampState = OFF;
+  FastLED.clear();
+  FastLED.show();
+
+  // Setup WiFi
+  if (digitalRead(BUTTON_PIN) == HIGH) {
+    delay(500);
+    if (digitalRead(BUTTON_PIN) == HIGH) {
+      Serial.println("\nRESET EEPROM\n");
+      // Clear EEPROM if button held down on startup
+      for (int i = 0; i < 96; ++i) {
+        EEPROM.write(i, 0);
+      }
+      EEPROM.commit();
+    }
+  }
+  setup_wifi();
+  client.setServer(MQTT_BROKER, MQTT_PORT);
+  client.setCallback(callback);
+
+  // Send out initialization message
+  if (!client.connected()) {
+    reconnect();
+  }
+
+  // Startup Indicator
+  startup_flash();
+  client.publish(mqtt_status_topic.c_str(), "init");
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  bool isPressed = (digitalRead(BUTTON_PIN) == HIGH);
+  touch_btn->tick(isPressed);
+  lamp_loop();
+}
 
 /******************************* WIFI Setup *******************************/
 
+String handle_OnConnect() {
+  content = "<!DOCTYPE html> <html>\n";
+  content += "<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, user-scalable=no\">\n";
+  content += "<title>Emotion Lamp Setup</title>\n";
+  content += "</head>\n";
+  content += "<body>\n";
+  content += "<h1>Emotion Lamp Configuration</h1>\n";
+  content += "<h3>Enter your WiFi and MQTT credentials.</h3>\n";
+  //content += "<form method='get' action='setting'><label>SSID: </label><input name='ssid' length=32><input name='pass' length=64><input type='submit'></form>\n";
+  content += "</body>\n";
+  content += "</html>\n";
+  server.send(200, "text/html", content);
+}
+
+String handle_settings() {
+  String qsid = server.arg("ssid");
+  String qpass = server.arg("pass");
+  if (qsid.length() > 0 && qpass.length() > 0) {
+    Serial.println("clearing eeprom");
+    for (int i = 0; i < 96; ++i) {
+      EEPROM.write(i, 0);
+    }
+
+    for (int i = 0; i < qsid.length(); ++i)
+    {
+      EEPROM.write(i, qsid[i]);
+    }
+
+    for (int i = 0; i < qpass.length(); ++i)
+    {
+      EEPROM.write(32 + i, qpass[i]);
+    }
+    EEPROM.commit();
+
+    content = "{\"Success\":\"saved to eeprom... reset to boot into new wifi\"}";
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", content);
+  } else {
+    content = "{\"Error\":\"404 not found\"}";
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(404, "application/json", content);
+  }
+}
+
+void launch_server() {
+  Serial.println(WiFi.softAP(ssid, password) ? "Ready" : "Failed");
+  delay(100);
+  server.on("/", handle_OnConnect);
+  //server.on("/setting", handle_settings);
+  server.begin();
+}
+
+bool test_wifi() {
+  for (int i = 0; i < 20; i++) {
+    if (WiFi.status() == WL_CONNECTED) {
+      return true;
+    }
+    delay(500);
+  }
+  return false;
+}
+
 void setup_wifi() {
+  WiFi.disconnect();
   delay(10);
 
+  String essid;
+  for (int i = 0; i < 32; i++) {
+    essid += char(EEPROM.read(i));
+  }
+  String epass;
+  for (int i = 32; i < 96; i++) {
+    epass += char(EEPROM.read(i));
+  }
+
 #ifdef DEBUG
-  // We start by connecting to a WiFi network
+  // We start by connecting to WiFi network in EEPROM
   Serial.println();
   Serial.print("Connecting to ");
-  Serial.println(WIFI_SSID);
+  Serial.println(essid);
 #endif
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  WiFi.begin(essid, epass);
+
+  if (!test_wifi()) {
+    launch_server();
+    Serial.println("Launching web server...");
+  }
 
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-#ifdef DEBUG
-    Serial.print(".");
-#endif
+    Serial.println(".");
+    server.handleClient();
   }
 
   randomSeed(micros());
@@ -297,7 +426,7 @@ void reconnect() {
 #endif
 
     // Attempt to connect
-    if (client.connect(DEVICE_ID, mqtt_username, mqtt_password)) {
+    if (client.connect(DEVICE_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
 #ifdef DEBUG
       Serial.println("Connected");
 #endif
@@ -344,24 +473,12 @@ static void handleDoubleTap() {
   }
 }
 
-static void handleTap() {
+static void handleeTap() {
   Serial.println("Tapped!");
 }
 
-static void handleLongTapStart() {
-  Serial.println("Long Tap Start!");
-}
-
-static void handleDuringLongPress() {
-  static long lastPressed = 0;
-  long duration = 2000;
-  long nextTime = lastPressed + duration;
-  if (millis() >= nextTime) {
-    if (touch_btn.isLongPressed()) {
-      Serial.println("During Long Tap!");
-      lastPressed = millis();
-    }
-  }
+static void handleLongTap() {
+  Serial.println("Long Tap!");
 }
 
 /******************************* Lamp Loop *****************************/
@@ -470,53 +587,6 @@ void lamp_loop() {
       }
   }
   stateChange = false;
-}
-
-void setup() {
-  delay(2000);
-  Serial.begin(115200);
-
-  // Setup button
-  touch_btn.setClickTicks(800);
-  touch_btn.setPressTicks(1100);
-  touch_btn.attachClick(handleTap);
-  touch_btn.attachDoubleClick(handleDoubleTap);
-  touch_btn.attachLongPressStart(handleLongTapStart);
-  touch_btn.attachDuringLongPress(handleDuringLongPress);
-  pinMode(BUTTON_PIN, INPUT);
-
-  // Setup LED Strip
-  FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NUM_LEDS);
-
-  // Clear LED state and reset strip
-  lampState = OFF;
-  FastLED.clear();
-  FastLED.show();
-
-  // Setup WiFi
-  setup_wifi();
-  client.setServer(MQTT_BROKER, MQTT_PORT);
-  client.setCallback(callback);
-
-  // Send out initialization message
-  if (!client.connected()) {
-    reconnect();
-  }
-
-  // Startup Indicator
-  startup_flash();
-  client.publish(mqtt_status_topic.c_str(), "init");
-}
-
-void loop() {
-  if (!client.connected()) {
-    reconnect();
-  }
-  client.loop();
-
-  bool isPressed = (digitalRead(BUTTON_PIN) == HIGH);
-  touch_btn.tick(isPressed);
-  lamp_loop();
 }
 
 /******************************* LED Patterns *****************************/

@@ -9,13 +9,8 @@
 
 #define MQTT_BROKER     ""
 #define MQTT_PORT       1883
-
-// If MQTT broker is password protected, uncomment these lines and enter credentials
-/*
-#define MQTT_PROTECTED
 #define MQTT_USERNAME   ""
 #define MQTT_PASSWORD   ""
-*/
 
 #define MQTT_TOPIC_ROOT   ""
 
