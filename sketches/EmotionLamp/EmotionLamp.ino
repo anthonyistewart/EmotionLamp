@@ -11,24 +11,26 @@
 #include "config.h"
 
 // Uncomment to enable debug print statements
-#define DEBUG
+//#define DEBUG
 
 #define BUTTON_PIN D0 // Wemos D1 Mini D0
 #define DATA_PIN D5 // Wemos D1 Mini D5
 
 #define RAINBOW_MAX_VALUE 1280
-#define STRIPE_WIDTH 10
-//#define GRADIENT_LENGTH 60
 
 #ifdef LED_STRIP
 const int NUM_LEDS = 48;
+const int NUM_STRIPS = 8;
+const int LEDS_PER_STRIP = 6;
+const int GRADIENT_LENGTH = LEDS_PER_STRIP;
+const int STRIPE_WIDTH = LEDS_PER_STRIP;
 #endif
 
 #ifdef LED_SPIRAL
 const int NUM_LEDS = 60;
-#endif
-
 const int GRADIENT_LENGTH = NUM_LEDS;
+const int STRIPE_WIDTH = 10;
+#endif
 
 #ifndef MQTT_PROTECTED
 const char* mqtt_username = NULL;
@@ -72,7 +74,10 @@ int color2[] = {0, 0, 0};
 colorTypes colorType;
 
 CRGB leds[NUM_LEDS];
-CRGB gradient[NUM_LEDS];
+CRGB temp_leds[LEDS_PER_STRIP];
+CRGB gradient[GRADIENT_LENGTH];
+
+
 int gradientStartPos = 0;  // Starting position of the gradient.
 int gradientDelta = 1;  // 1 or -1.  (Negative value reverses direction.)
 
@@ -80,12 +85,14 @@ String mqtt_root_topic = MQTT_TOPIC_ROOT;
 String mqtt_set_topic = mqtt_root_topic + "/" + DEVICE_ID + "/set";
 String mqtt_status_topic = mqtt_root_topic + "/" + DEVICE_ID + "/status";
 String mqtt_out_topic = mqtt_root_topic + "/" + PAIR_DEVICE_ID + "/set";
+String mqttMessage;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 ESP8266WebServer server(80);
 
 OneButton touch_btn = OneButton(BUTTON_PIN, false, false);
+int currentPattern = 0;
 
 /******************************* WIFI Setup *******************************/
 
@@ -123,7 +130,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
 #ifdef DEBUG
   Serial.print("Message arrived [");
   Serial.print(topic);
-  Serial.print("] ");
+  Serial.println("] ");
 #endif
 
   StaticJsonDocument<256> doc;
@@ -242,7 +249,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
             color2[0] = c2["r"];
             color2[1] = c2["g"];
             color2[2] = c2["b"];
-            fill_gradient_RGB(leds, 0, CRGB(color1[0], color1[1], color1[2]), NUM_LEDS - 1, CRGB(color2[0], color2[1], color2[2]));
+            fill_gradient_RGB(gradient, 0, CRGB(color1[0], color1[1], color1[2]), GRADIENT_LENGTH - 1, CRGB(color2[0], color2[1], color2[2]));
           }
           else if (strcmp(color_type, "hsv") == 0) {
             colorType = HSV_COLOR;
@@ -252,7 +259,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
             color2[0] = c2["h"];
             color2[1] = c2["s"];
             color2[2] = c2["v"];
-            fill_gradient(gradient, 0, CHSV(color1[0], color1[1], color1[2]), NUM_LEDS - 1, CHSV(color2[0], color2[1], color2[2]), SHORTEST_HUES);
+            fill_gradient(gradient, 0, CHSV(color1[0], color1[1], color1[2]), GRADIENT_LENGTH - 1, CHSV(color2[0], color2[1], color2[2]), SHORTEST_HUES);
           }
 
           stateChange = true;
@@ -353,20 +360,144 @@ static void handleDoubleTap() {
 }
 
 static void handleTap() {
+#ifdef DEBUG
   Serial.println("Tapped!");
+#endif
+  StaticJsonDocument<256> doc;
+
+  doc["state"] = lampState;
+
+  JsonObject color = doc.createNestedObject("color");
+  JsonArray color_values = color.createNestedArray("values");
+  JsonObject color_values_0 = color_values.createNestedObject();
+  JsonObject color_values_1 = color_values.createNestedObject();
+  if (colorType == RGB_COLOR) {
+    color["type"] = "rgb";
+    color_values_0["r"] = color1[0];
+    color_values_0["g"] = color1[1];
+    color_values_0["b"] = color1[2];
+    color_values_1["r"] = color2[0];
+    color_values_1["g"] = color2[1];
+    color_values_1["b"] = color2[2];
+  }
+  else if (colorType == HSV_COLOR) {
+    color["type"] = "hsv";
+    color_values_0["h"] = color1[0];
+    color_values_0["s"] = color1[1];
+    color_values_0["v"] = color1[2];
+    color_values_1["h"] = color2[0];
+    color_values_1["s"] = color2[1];
+    color_values_1["v"] = color2[2];
+  }
+
+  mqttMessage = "";
+  serializeJson(doc, mqttMessage);
+  bool success = client.publish(mqtt_out_topic.c_str(), mqttMessage.c_str());
+#ifdef DEBUG
+  if (success) {
+    Serial.println("Successfully sent!");
+  } else {
+    Serial.println("Failed to send...");
+  }
+#endif
 }
 
 static void handleLongTapStart() {
+#ifdef DEBUG
   Serial.println("Long Tap Start!");
+#endif
+  currentPattern = 0;
+  FastLED.clear();
+  FastLED.show();
 }
 
 static void handleDuringLongPress() {
   static long lastPressed = 0;
-  long duration = 2000;
+  long duration = 800;
   long nextTime = lastPressed + duration;
   if (millis() >= nextTime) {
     if (touch_btn.isLongPressed()) {
+#ifdef DEBUG
       Serial.println("During Long Tap!");
+      Serial.print("currentPattern:");
+      Serial.println(currentPattern);
+#endif
+      currentPattern++;
+      switch (currentPattern) {
+
+        //Red
+        case 1:
+          lampState = SOLID;
+          colorType = HSV_COLOR;
+          color1[0] = 4;
+          color1[1] = 255;
+          color1[2] = 180;
+          stateChange = true;
+          break;
+        //Orange
+        case 2:
+          lampState = SOLID;
+          colorType = HSV_COLOR;
+          color1[0] = 11;
+          color1[1] = 255;
+          color1[2] = 180;
+          stateChange = true;
+          break;
+        //Yellow
+        case 3:
+          lampState = SOLID;
+          colorType = HSV_COLOR;
+          color1[0] = 40;
+          color1[1] = 255;
+          color1[2] = 180;
+          stateChange = true;
+          break;
+        //Green
+        case 4:
+          lampState = SOLID;
+          colorType = HSV_COLOR;
+          color1[0] = 78;
+          color1[1] = 255;
+          color1[2] = 180;
+          stateChange = true;
+          break;
+        //Blue
+        case 5:
+          lampState = SOLID;
+          colorType = HSV_COLOR;
+          color1[0] = 160;
+          color1[1] = 255;
+          color1[2] = 180;
+          stateChange = true;
+          break;
+        //Pink
+        case 6:
+          lampState = SOLID;
+          colorType = HSV_COLOR;
+          color1[0] = 225;
+          color1[1] = 255;
+          color1[2] = 180;
+          stateChange = true;
+          break;
+        //Purple
+        case 7:
+          lampState = SOLID;
+          colorType = HSV_COLOR;
+          color1[0] = 200;
+          color1[1] = 255;
+          color1[2] = 180;
+          stateChange = true;
+          break;
+        //White
+        case 8:
+          lampState = SOLID;
+          colorType = HSV_COLOR;
+          color1[0] = 0;
+          color1[1] = 0;
+          color1[2] = 180;
+          stateChange = true;
+          break;
+      }
       lastPressed = millis();
     }
   }
@@ -417,12 +548,24 @@ void lamp_loop() {
 
     case GRADIENT: {
         if (stateChange) {
-          if (colorType == RGB_COLOR)
+          if (colorType == RGB_COLOR) {
+#ifdef LED_STRIP
+            fill_gradient_RGB(temp_leds, 0, CRGB(color1[0], color1[1], color1[2]), LEDS_PER_STRIP - 1, CRGB(color2[0], color2[1], color2[2]));
+#endif
+#ifdef LED_SPIRAL
             fill_gradient_RGB(leds, 0, CRGB(color1[0], color1[1], color1[2]), NUM_LEDS - 1, CRGB(color2[0], color2[1], color2[2]));
+#endif
+          }
 
-          else if (colorType == HSV_COLOR)
+          else if (colorType == HSV_COLOR) {
+#ifdef LED_STRIP
+            fill_gradient(temp_leds, LEDS_PER_STRIP, CHSV(color1[0], color1[1], color1[2]), CHSV(color2[0], color2[1], color2[2]), SHORTEST_HUES);
+#endif
+#ifdef LED_SPIRAL
             fill_gradient(leds, NUM_LEDS, CHSV(color1[0], color1[1], color1[2]), CHSV(color2[0], color2[1], color2[2]), SHORTEST_HUES);
-
+#endif
+          }
+          applyToStrips();
           FastLED.show();
 #ifdef DEBUG
           Serial.println("LED to gradient");
@@ -482,14 +625,16 @@ void lamp_loop() {
 
 void setup() {
   delay(2000);
+#ifdef DEBUG
   Serial.begin(115200);
+#endif
 
   // Setup button
   touch_btn.setClickTicks(200);
   touch_btn.setPressTicks(500);
   touch_btn.attachClick(handleTap);
   touch_btn.attachDoubleClick(handleDoubleTap);
-  //touch_btn.attachLongPressStart(handleLongTapStart);
+  touch_btn.attachLongPressStart(handleLongTapStart);
   touch_btn.attachDuringLongPress(handleDuringLongPress);
   pinMode(BUTTON_PIN, INPUT);
 
@@ -553,9 +698,17 @@ CRGB randomColor() {
 
 // Rainbow colors that slowly cycle across LEDs
 void rainbow() {
+#ifdef LED_SPIRAL
   for (int i = 0; i < NUM_LEDS; i++) {
     leds[i] = Wheel(((i * 256 / NUM_LEDS) + rainbowCycleCount) & 255);
   }
+#endif
+#ifdef LED_STRIP
+  for (int i = 0; i < LEDS_PER_STRIP; i++) {
+    temp_leds[i] = Wheel(((i * 256 / LEDS_PER_STRIP) + rainbowCycleCount) & 255);
+  }
+  applyToStrips();
+#endif
   FastLED.show();
 }
 
@@ -591,6 +744,7 @@ bool breathe(bool firstRun) {
 
 // Moving Gradient
 void moving_gradient() {
+#ifdef LED_SPIRAL
   uint8_t count = 0;
   for (uint8_t i = gradientStartPos; i < gradientStartPos + GRADIENT_LENGTH; i++) {
     leds[i % NUM_LEDS] = gradient[count];
@@ -604,6 +758,23 @@ void moving_gradient() {
   if ( (gradientStartPos > NUM_LEDS - 1) || (gradientStartPos < 0) ) { // Check if outside NUM_LEDS range
     gradientStartPos = gradientStartPos % NUM_LEDS;  // Loop around as needed.
   }
+#endif
+
+#ifdef LED_STRIP
+  uint8_t count = 0;
+  for (uint8_t i = gradientStartPos; i < gradientStartPos + GRADIENT_LENGTH; i++) {
+    temp_leds[i % LEDS_PER_STRIP] = gradient[count];
+    count++;
+  }
+  applyToStrips();
+  FastLED.show();
+  FastLED.clear();
+
+  gradientStartPos = gradientStartPos + gradientDelta;  // Update start position.
+  if ( (gradientStartPos > LEDS_PER_STRIP - 1) || (gradientStartPos < 0) ) { // Check if outside NUM_LEDS range
+    gradientStartPos = gradientStartPos % LEDS_PER_STRIP;  // Loop around as needed.
+  }
+#endif
 }
 
 // Display alternating stripes
@@ -646,5 +817,21 @@ void startup_flash() {
     FastLED.show();
     delay(200);
   }
+}
 
+void applyToStrips() {
+  int led_index = 0;
+  for (int j = 0; j < NUM_STRIPS; j++) {
+    if (j % 2 == 0) {
+      for (int i = 0; i < LEDS_PER_STRIP; i++) {
+        leds[led_index] = temp_leds[i];
+        led_index++;
+      }
+    } else {
+      for (int i = LEDS_PER_STRIP - 1; i >= 0; i--) {
+        leds[led_index] = temp_leds[i];
+        led_index++;
+      }
+    }
+  }
 }
