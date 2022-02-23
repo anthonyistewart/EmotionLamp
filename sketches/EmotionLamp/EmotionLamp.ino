@@ -10,13 +10,25 @@
 
 #include "config.h"
 
+// Uncomment to enable debug print statements
+#define DEBUG
+
 #define BUTTON_PIN D0 // Wemos D1 Mini D0
 #define DATA_PIN D5 // Wemos D1 Mini D5
-#define NUM_LEDS 60
 
 #define RAINBOW_MAX_VALUE 1280
 #define STRIPE_WIDTH 10
-#define GRADIENT_LENGTH 60
+//#define GRADIENT_LENGTH 60
+
+#ifdef LED_STRIP
+const int NUM_LEDS = 48;
+#endif
+
+#ifdef LED_SPIRAL
+const int NUM_LEDS = 60;
+#endif
+
+const int GRADIENT_LENGTH = NUM_LEDS;
 
 #ifndef MQTT_PROTECTED
 const char* mqtt_username = NULL;
@@ -27,10 +39,6 @@ const char* mqtt_password = NULL;
 const char* mqtt_username = MQTT_USERNAME;
 const char* mqtt_password = MQTT_PASSWORD;
 #endif
-
-// Uncomment to enable debug print statements
-#define DEBUG
-
 
 // Delay Settings for Patterns
 unsigned long prevRainbowTime = 0;
@@ -477,11 +485,11 @@ void setup() {
   Serial.begin(115200);
 
   // Setup button
-  touch_btn.setClickTicks(800);
-  touch_btn.setPressTicks(1100);
+  touch_btn.setClickTicks(200);
+  touch_btn.setPressTicks(500);
   touch_btn.attachClick(handleTap);
   touch_btn.attachDoubleClick(handleDoubleTap);
-  touch_btn.attachLongPressStart(handleLongTapStart);
+  //touch_btn.attachLongPressStart(handleLongTapStart);
   touch_btn.attachDuringLongPress(handleDuringLongPress);
   pinMode(BUTTON_PIN, INPUT);
 

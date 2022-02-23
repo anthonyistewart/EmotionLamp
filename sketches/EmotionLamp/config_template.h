@@ -23,3 +23,7 @@
 
 #define DEVICE_ID ""
 #define PAIR_DEVICE_ID ""
+
+// Uncomment one of these lines depending on the LED configuration
+#define LED_STRIP
+//#define LED_SPIRAL
