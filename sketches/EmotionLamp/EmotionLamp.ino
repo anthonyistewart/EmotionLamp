@@ -496,6 +496,7 @@ static void handleDuringLongPress() {
           color1[1] = 0;
           color1[2] = 180;
           stateChange = true;
+          currentPattern = 0;
           break;
       }
       lastPressed = millis();
@@ -819,6 +820,7 @@ void startup_flash() {
   }
 }
 
+// Corrects the LED patterns for the strip configuration
 void applyToStrips() {
   int led_index = 0;
   for (int j = 0; j < NUM_STRIPS; j++) {
